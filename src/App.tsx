@@ -26,7 +26,10 @@ import {
   GRADES, 
   UNIVERSITIES, 
   AdmissionType, 
-  POPULAR_SEP 
+  POPULAR_SEP,
+  UnivGroup,
+  GROUP_LABELS,
+  getUnivGroup
 } from './data';
 
 /**
@@ -50,6 +53,9 @@ const TYPE_BG: Record<AdmissionType, string> = {
   '기타': 'bg-purple-600',
 };
 
+const TYPES: AdmissionType[] = ['교과', '종합', '논술', '기타'];
+const GROUPS: UnivGroup[] = ['상위15', '서울', '경기인천지방'];
+
 const TYPE_DOTS: Record<AdmissionType, string> = {
   '교과': '🔵',
   '종합': '🟠',
@@ -59,26 +65,57 @@ const TYPE_DOTS: Record<AdmissionType, string> = {
 
 export default function App() {
   const [searchTerm, setSearchTerm] = useState('');
-  const [userGrade, setUserGrade] = useState<string>('');
+  const [minGrade, setMinGrade] = useState<string>('');
+  const [maxGrade, setMaxGrade] = useState<string>('');
+  const hasRange = minGrade !== '' || maxGrade !== '';
+  const [typeFilter, setTypeFilter] = useState<AdmissionType | null>(null);
+  const [groupFilter, setGroupFilter] = useState<UnivGroup | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Stats Calculation
+  // 점수(등급) 범위 확인: 비어 있는 쪽은 제한 없음. 표의 등급 칸(예: 3.2)은 3.15~3.25 구간 대표값.
+  const inGrade = (gradeKey: string) => {
+    const gVal = parseFloat(gradeKey);
+    const lo = parseFloat(minGrade);
+    const hi = parseFloat(maxGrade);
+    if (!isNaN(lo) && gVal < lo - 0.001) return false;
+    if (!isNaN(hi) && gVal > hi + 0.001) return false;
+    return true;
+  };
+
+
+  // 급간(대학 그룹)별 전형 비율: 검색어·내 등급은 반영, 전형/급간 필터는 무시(비교용)
+  const groupStats = useMemo(() => {
+    const init = () => ({ total: 0, '교과': 0, '종합': 0, '논술': 0, '기타': 0 });
+    const result: Record<UnivGroup, ReturnType<typeof init>> = {
+      '상위15': init(), '서울': init(), '경기인천지방': init(),
+    };
+    BATCH_DATA.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()))
+      .forEach(univ => {
+        const g = result[getUnivGroup(univ.name)];
+        Object.keys(univ.grades).forEach(gradeKey => {
+          if (!inGrade(gradeKey)) return;
+          (univ.grades[gradeKey] || []).forEach(c => {
+            g[c.type as AdmissionType]++;
+            g.total++;
+          });
+        });
+      });
+    return result;
+  }, [searchTerm, minGrade, maxGrade]);
+
+  // Stats Calculation (선택한 급간 기준)
   const stats = useMemo(() => {
     const counts = { total: 0, '교과': 0, '종합': 0, '논술': 0, '기타': 0 };
     
     // Filter data based on current view criteria to make stats reactive
     const filteredBATCH = BATCH_DATA.filter(u => 
-      u.name.toLowerCase().includes(searchTerm.toLowerCase())
+      u.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      (!groupFilter || getUnivGroup(u.name) === groupFilter)
     );
 
     filteredBATCH.forEach(univ => {
       Object.keys(univ.grades).forEach(gradeKey => {
-        // If user grade is set, only include grades in context (±0.3)
-        if (userGrade) {
-          const gVal = parseFloat(gradeKey);
-          const uVal = parseFloat(userGrade);
-          if (!isNaN(uVal) && Math.abs(gVal - uVal) > 0.31) return;
-        }
+        if (!inGrade(gradeKey)) return;
 
         const cases = univ.grades[gradeKey];
         if (cases) {
@@ -90,7 +127,7 @@ export default function App() {
       });
     });
     return counts;
-  }, [searchTerm, userGrade]);
+  }, [searchTerm, minGrade, maxGrade, groupFilter]);
 
   const handleScroll = (direction: 'left' | 'right') => {
     if (!scrollRef.current) return;
@@ -102,16 +139,11 @@ export default function App() {
   };
 
   const filteredUniversities = UNIVERSITIES.filter(u => 
-    u.toLowerCase().includes(searchTerm.toLowerCase())
+    u.toLowerCase().includes(searchTerm.toLowerCase()) &&
+    (!groupFilter || getUnivGroup(u) === groupFilter)
   );
 
-  const displayedGrades = GRADES.filter(g => {
-    if (!userGrade) return true;
-    const gVal = parseFloat(g);
-    const uVal = parseFloat(userGrade);
-    if (isNaN(uVal)) return true;
-    return Math.abs(gVal - uVal) <= 0.31; // Using 0.31 to account for float precision
-  });
+  const displayedGrades = GRADES.filter(g => inGrade(g));
 
   return (
     <div className="h-screen bg-slate-50 p-2 md:p-3 font-sans text-slate-900 flex flex-col gap-2 selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden">
@@ -128,24 +160,53 @@ export default function App() {
         </div>
 
         <div className="flex flex-col md:flex-row items-start md:items-center gap-4 w-full md:w-auto">
-          <div id="admission-legend" className="flex items-center gap-3 text-[10px] font-extrabold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
-            <div className="flex items-center gap-1 text-blue-600"><span className="w-2 h-2 rounded-full bg-blue-600"></span> 교과</div>
-            <div className="flex items-center gap-1 text-orange-500"><span className="w-2 h-2 rounded-full bg-orange-500"></span> 종합</div>
-            <div className="flex items-center gap-1 text-green-600"><span className="w-2 h-2 rounded-full bg-green-600"></span> 논술</div>
-            <div className="flex items-center gap-1 text-purple-600"><span className="w-2 h-2 rounded-full bg-purple-600"></span> 기타</div>
+          <div id="admission-legend" className="flex items-center gap-1 text-[10px] font-extrabold bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-100">
+            <button
+              onClick={() => setTypeFilter(null)}
+              className={cn("px-2 py-0.5 rounded-md transition-colors", typeFilter === null ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-200")}
+            >전체</button>
+            {TYPES.map(t => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(typeFilter === t ? null : t)}
+                aria-pressed={typeFilter === t}
+                className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 rounded-md transition-colors",
+                  typeFilter === t ? cn(TYPE_BG[t], "text-white") : cn(TYPE_COLORS[t], "hover:bg-slate-200")
+                )}
+              >
+                <span className={cn("w-2 h-2 rounded-full", typeFilter === t ? "bg-white" : TYPE_BG[t])}></span> {t}
+              </button>
+            ))}
           </div>
           
           <div className="flex gap-2 w-full md:w-auto">
-            <div className="relative w-28 shrink-0">
-              <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-500" size={11} />
-              <input 
-                type="number" 
-                step="0.1"
-                placeholder="내 등급..."
-                className="w-full pl-7 pr-2 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500/20 focus:bg-white focus:outline-none transition-all font-bold placeholder:text-indigo-300"
-                value={userGrade}
-                onChange={(e) => setUserGrade(e.target.value)}
+            <div className="flex items-center gap-1 shrink-0 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1">
+              <Filter className="text-indigo-500 shrink-0" size={11} />
+              <input
+                type="number" step="0.1" min="1" max="9"
+                placeholder="1.0"
+                aria-label="최소 등급"
+                className="w-12 py-0.5 bg-white border border-indigo-100 rounded text-xs text-center font-bold focus:ring-2 focus:ring-indigo-500/20 focus:outline-none placeholder:text-indigo-300"
+                value={minGrade}
+                onChange={(e) => setMinGrade(e.target.value)}
               />
+              <span className="text-indigo-400 font-black text-xs">~</span>
+              <input
+                type="number" step="0.1" min="1" max="9"
+                placeholder="9.0"
+                aria-label="최대 등급"
+                className="w-12 py-0.5 bg-white border border-indigo-100 rounded text-xs text-center font-bold focus:ring-2 focus:ring-indigo-500/20 focus:outline-none placeholder:text-indigo-300"
+                value={maxGrade}
+                onChange={(e) => setMaxGrade(e.target.value)}
+              />
+              {hasRange && (
+                <button
+                  onClick={() => { setMinGrade(''); setMaxGrade(''); }}
+                  className="text-[9px] font-black text-indigo-500 hover:text-indigo-800 px-1"
+                  aria-label="등급 범위 초기화"
+                >초기화</button>
+              )}
             </div>
             <div className="relative w-full md:w-40">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={11} />
@@ -217,7 +278,7 @@ export default function App() {
                     </td>
                     {filteredUniversities.map(u => {
                       const univData = BATCH_DATA.find(d => d.name === u);
-                      const cases = univData?.grades[grade] || [];
+                      const cases = (univData?.grades[grade] || []).filter(c => !typeFilter || c.type === typeFilter);
                       
                       return (
                         <td key={`${u}-${grade}`} className={cn(
@@ -276,32 +337,75 @@ export default function App() {
           {/* Target Grade Info */}
           <div className={cn(
             "rounded-xl p-4 text-white shadow-md relative overflow-hidden transition-all duration-300 min-h-[100px]",
-            userGrade ? "bg-indigo-600" : "bg-slate-200 text-slate-400 shadow-none border border-slate-300"
+            hasRange ? "bg-indigo-600" : "bg-slate-200 text-slate-400 shadow-none border border-slate-300"
           )}>
             <div className="absolute -right-2 -bottom-2 opacity-10">
               <TrendingUp size={60} />
             </div>
             <div className="text-[8px] opacity-80 font-bold uppercase tracking-wider mb-0.5">Target Range</div>
-            {userGrade ? (
+            {hasRange ? (
               <>
                 <div className="text-2xl font-black mb-1">
-                  {(parseFloat(userGrade) - 0.3).toFixed(1)} - {(parseFloat(userGrade) + 0.3).toFixed(1)}
+                  {minGrade !== '' ? parseFloat(minGrade).toFixed(1) : '1.0'} ~ {maxGrade !== '' ? parseFloat(maxGrade).toFixed(1) : '9.0'}
                 </div>
-                <p className="text-[9px] opacity-80 leading-tight font-medium">검색 등급 기준 ±0.3 범위 데이터 노출 중</p>
+                <p className="text-[9px] opacity-80 leading-tight font-medium">입력한 등급 범위의 배치표와 통계를 표시 중</p>
               </>
             ) : (
                 <>
                 <div className="text-xl font-black mb-1 opacity-50">1.0 - 9.0</div>
-                <p className="text-[9px] leading-tight font-bold">좌측 상단에 '내 등급'을 입력해 보세요.</p>
+                <p className="text-[9px] leading-tight font-bold">상단에 등급 범위(예: 1.0 ~ 3.2)를 입력해 보세요.</p>
                 </>
             )}
+          </div>
+
+          {/* University Group Filter & Comparison */}
+          <div id="group-stats-card" className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-2">
+            <h3 className="font-extrabold text-[11px] flex items-center gap-2 uppercase tracking-wide">
+              <School size={13} className="text-indigo-500" />
+              대학 급간별 전형 비율
+            </h3>
+            <button
+              onClick={() => setGroupFilter(null)}
+              className={cn("text-[10px] font-black px-2 py-1 rounded-md border text-left transition-colors",
+                groupFilter === null ? "bg-slate-800 text-white border-slate-800" : "bg-slate-50 text-slate-500 border-slate-100 hover:border-indigo-200")}
+            >전체 대학</button>
+            {GROUPS.map(g => {
+              const gs = groupStats[g];
+              return (
+                <button
+                  key={g}
+                  onClick={() => setGroupFilter(groupFilter === g ? null : g)}
+                  aria-pressed={groupFilter === g}
+                  className={cn("flex flex-col gap-1 p-2 rounded-md border text-left transition-colors",
+                    groupFilter === g ? "bg-indigo-50 border-indigo-400" : "bg-slate-50 border-slate-100 hover:border-indigo-200")}
+                >
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[10px] font-black text-slate-700">{GROUP_LABELS[g]}</span>
+                    <span className="text-[9px] font-bold text-slate-400">{gs.total}명</span>
+                  </div>
+                  <div className="flex h-2 w-full rounded-full overflow-hidden bg-slate-200">
+                    {TYPES.map(t => gs.total > 0 && gs[t] > 0 ? (
+                      <div key={t} className={TYPE_BG[t]} style={{ width: `${(gs[t] / gs.total) * 100}%` }} title={`${t} ${gs[t]}명`} />
+                    ) : null)}
+                  </div>
+                  <div className="flex flex-wrap gap-x-2 text-[9px] font-bold">
+                    {TYPES.map(t => (
+                      <span key={t} className={TYPE_COLORS[t]}>
+                        {t} {gs.total > 0 ? ((gs[t] / gs.total) * 100).toFixed(0) : 0}%
+                      </span>
+                    ))}
+                  </div>
+                </button>
+              );
+            })}
+            <p className="text-[9px] text-slate-400 font-bold tracking-tight">* 급간을 누르면 표에도 해당 대학만 표시됩니다.</p>
           </div>
 
           {/* Admission Type Statistics */}
           <div id="admission-stats-card" className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3">
             <h3 className="font-extrabold text-[11px] flex items-center gap-2 uppercase tracking-wide">
               <PieChart size={13} className="text-indigo-500" />
-              {userGrade ? "해당 등급대 합격 비율 (%)" : "전체 합격 비율 (%)"}
+              {(groupFilter ? GROUP_LABELS[groupFilter] + " · " : "") + (hasRange ? "해당 등급 범위 합격 비율 (%)" : "전체 합격 비율 (%)")}
             </h3>
             <div className="grid grid-cols-2 gap-2">
               {(['교과', '종합', '논술', '기타'] as AdmissionType[]).map(type => {
@@ -318,7 +422,7 @@ export default function App() {
               })}
             </div>
             <p className="text-[9px] text-slate-400 font-bold mt-1 tracking-tight">
-              {userGrade ? `* ${userGrade}등급(±0.3) 구간 ${stats.total}명 분석` : `* 숭신고 누적 합격생 ${stats.total}명 분석`}
+              {hasRange ? `* ${minGrade || '1.0'}~${maxGrade || '9.0'}등급 구간 ${stats.total}명 분석` : `* ${groupFilter ? GROUP_LABELS[groupFilter] : '숭신고 누적'} 합격생 ${stats.total}명 분석`}
             </p>
           </div>
 
