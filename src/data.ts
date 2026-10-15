@@ -616,7 +616,7 @@ export const BATCH_DATA: UniversityData[] = [
     }
   },
   {
-    name: "서울학기대",
+    name: "서울과기대",
     grades: {
       "2.3": [{ department: "경영학과", type: "교과", result: "합" }]
     }
@@ -886,3 +886,34 @@ export const POPULAR_SEP = [
   { univ: "을지대", dept: "물리치료학과", grade: "4.5", type: "교과" },
   { univ: "동서울대", dept: "보건의료행정", grade: "5.5", type: "교과" }
 ];
+
+/**
+ * 대학 급간 구분
+ * - 상위 15개: 서연고 서성한이 중경외시 건동홍숙 (본교 기준, 제2캠퍼스/분교는 소재지 기준으로 분류)
+ */
+export type UnivGroup = '상위15' | '서울' | '경기인천지방';
+
+export const GROUP_LABELS: Record<UnivGroup, string> = {
+  '상위15': '상위 15개 대학',
+  '서울': '그외 서울권',
+  '경기인천지방': '그외 경기·인천·지방',
+};
+
+const TOP15 = new Set([
+  "서울대", "연세대", "고려대",
+  "서강대", "성균관대", "한양대", "이화여대",
+  "중앙대", "경희대", "한국외대", "시립대",
+  "건국대", "동국대", "홍익대", "숙명여대",
+]);
+
+const SEOUL = new Set([
+  "국민대", "숭실대", "세종대", "광운대", "명지대(서울)", "상명대",
+  "성신여대", "동덕여대", "덕성여대", "서울여대", "삼육대", "한성대",
+  "서경대", "서울과기대",
+]);
+
+export function getUnivGroup(name: string): UnivGroup {
+  if (TOP15.has(name)) return '상위15';
+  if (SEOUL.has(name)) return '서울';
+  return '경기인천지방'; // 그 외 전부: 경기·인천 및 지방(건국대(글로컬), 홍익대(세종) 등)
+}
