@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   BarChart, 
   MapPin, 
@@ -17,7 +17,8 @@ import {
   GraduationCap,
   ChevronLeft,
   ChevronRight,
-  PieChart
+  PieChart,
+  X
 } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -71,6 +72,39 @@ export default function App() {
   const [typeFilter, setTypeFilter] = useState<AdmissionType | null>(null);
   const [groupFilter, setGroupFilter] = useState<UnivGroup | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [selectedUniv, setSelectedUniv] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedUniv) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedUniv(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedUniv]);
+
+  // 선택한 대학의 전체 합격생 목록 + 전형별 비율 (등급 범위와 무관하게 전체 표시)
+  const univDetail = useMemo(() => {
+    if (!selectedUniv) return null;
+    const data = BATCH_DATA.find(d => d.name === selectedUniv);
+    const rows: { grade: number; gradeText: string; department: string; type: AdmissionType; admissionName: string; exact: boolean }[] = [];
+    const counts: Record<AdmissionType, number> = { '교과': 0, '종합': 0, '논술': 0, '기타': 0 };
+    Object.entries(data?.grades || {}).forEach(([gradeKey, cases]) => {
+      (cases || []).forEach(c => {
+        const exact = !!c.exactGrade && !isNaN(parseFloat(c.exactGrade));
+        const g = exact ? parseFloat(c.exactGrade as string) : parseFloat(gradeKey);
+        rows.push({
+          grade: g,
+          gradeText: exact ? g.toFixed(2) : `${gradeKey}대`,
+          department: c.department,
+          type: c.type,
+          admissionName: c.admissionName || (c.type === '교과' ? '학생부교과' : c.type === '종합' ? '학생부종합' : '일반전형'),
+          exact,
+        });
+        counts[c.type]++;
+      });
+    });
+    rows.sort((a, b) => a.grade - b.grade);
+    return { rows, counts, total: rows.length };
+  }, [selectedUniv]);
 
   // 점수(등급) 범위 확인: 비어 있는 쪽은 제한 없음. 표의 등급 칸(예: 3.2)은 3.15~3.25 구간 대표값.
   const inGrade = (gradeKey: string) => {
@@ -253,8 +287,14 @@ export default function App() {
                     <div className="text-[10px] font-black text-slate-900 mt-0.5">내신등급</div>
                   </th>
                   {filteredUniversities.map(u => (
-                    <th key={u} className="p-2 border-r border-slate-200 text-center w-[110px] bg-slate-100/95 backdrop-blur-sm shadow-[0_2px_4px_rgba(0,0,0,0.02)]">
-                      <span className="text-[10px] font-black text-slate-700 block truncate">{u}</span>
+                    <th key={u} className="p-0 border-r border-slate-200 text-center w-[110px] bg-slate-100/95 backdrop-blur-sm shadow-[0_2px_4px_rgba(0,0,0,0.02)]">
+                      <button
+                        onClick={() => setSelectedUniv(u)}
+                        title={`${u} 합격생 목록 보기`}
+                        className="w-full p-2 hover:bg-indigo-100 transition-colors cursor-pointer"
+                      >
+                        <span className="text-[10px] font-black text-slate-700 hover:text-indigo-700 block truncate underline decoration-dotted decoration-slate-300 underline-offset-2">{u}</span>
+                      </button>
                     </th>
                   ))}
                 </tr>
@@ -449,6 +489,81 @@ export default function App() {
           </div>
         </aside>
       </div>
+
+
+      {/* University Detail Modal */}
+      {selectedUniv && univDetail && (
+        <div
+          className="fixed inset-0 z-[200] bg-slate-900/50 flex items-center justify-center p-3"
+          onClick={() => setSelectedUniv(null)}
+        >
+          <div
+            role="dialog"
+            aria-label={`${selectedUniv} 합격생 목록`}
+            className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between px-5 py-3 border-b border-slate-200 shrink-0">
+              <div>
+                <div className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">University Detail</div>
+                <h2 className="text-lg font-black text-slate-800">{selectedUniv} <span className="text-slate-400 text-sm font-bold">합격생 {univDetail.total}명</span></h2>
+                <span className="text-[9px] text-slate-400 font-bold">{GROUP_LABELS[getUnivGroup(selectedUniv)]}</span>
+              </div>
+              <button onClick={() => setSelectedUniv(null)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="닫기">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="px-5 py-3 border-b border-slate-100 shrink-0">
+              <div className="text-[10px] font-black text-slate-500 mb-1.5">전형별 합격 비율</div>
+              {univDetail.total > 0 ? (
+                <>
+                  <div className="flex h-3 w-full rounded-full overflow-hidden bg-slate-200">
+                    {TYPES.map(t => univDetail.counts[t] > 0 ? (
+                      <div key={t} className={TYPE_BG[t]} style={{ width: `${(univDetail.counts[t] / univDetail.total) * 100}%` }} title={`${t} ${univDetail.counts[t]}명`} />
+                    ) : null)}
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] font-black">
+                    {TYPES.map(t => (
+                      <span key={t} className={TYPE_COLORS[t]}>
+                        {TYPE_DOTS[t]} {t} {univDetail.counts[t]}명 ({((univDetail.counts[t] / univDetail.total) * 100).toFixed(1)}%)
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs text-slate-400 font-bold">등록된 합격 사례가 없습니다.</p>
+              )}
+            </div>
+
+            <div className="overflow-y-auto flex-1">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 bg-slate-100 text-[10px] text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 w-10 text-center">No</th>
+                    <th className="px-3 py-2 w-20">내신등급</th>
+                    <th className="px-3 py-2">학과/계열</th>
+                    <th className="px-3 py-2 w-16">구분</th>
+                    <th className="px-3 py-2">전형명</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {univDetail.rows.map((r, i) => (
+                    <tr key={i} className="border-b border-slate-100 hover:bg-indigo-50/40">
+                      <td className="px-3 py-1.5 text-center text-slate-400 font-mono">{i + 1}</td>
+                      <td className="px-3 py-1.5 font-mono font-bold text-slate-800">{r.gradeText}</td>
+                      <td className="px-3 py-1.5 font-bold text-slate-800">{r.department}</td>
+                      <td className={cn("px-3 py-1.5 font-black", TYPE_COLORS[r.type])}>{TYPE_DOTS[r.type]} {r.type}</td>
+                      <td className="px-3 py-1.5 text-slate-600">{r.admissionName}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="px-5 py-2 text-[9px] text-slate-400 font-bold">* 등급 범위·전형 필터와 관계없이 해당 대학의 전체 사례를 등급 순으로 표시합니다. '3.0대'처럼 표시된 항목은 정확한 등급이 입력되지 않은 사례입니다.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Page Footer */}
       <footer className="flex flex-col md:flex-row justify-between items-center px-4 py-1.5 text-[8px] md:text-[9px] text-slate-500 font-bold tracking-tight border-t border-slate-200 bg-white/50 backdrop-blur-sm shrink-0">
