@@ -543,7 +543,7 @@ export default function App() {
                     <th className="px-3 py-2 w-10 text-center">No</th>
                     <th className="px-3 py-2 w-20">내신등급</th>
                     <th className="px-3 py-2">학과/계열</th>
-                    <th className="px-3 py-2 w-16">구분</th>
+                    <th className="px-3 py-2 w-24 whitespace-nowrap">구분</th>
                     <th className="px-3 py-2">전형명</th>
                   </tr>
                 </thead>
@@ -553,7 +553,7 @@ export default function App() {
                       <td className="px-3 py-1.5 text-center text-slate-400 font-mono">{i + 1}</td>
                       <td className="px-3 py-1.5 font-mono font-bold text-slate-800">{r.gradeText}</td>
                       <td className="px-3 py-1.5 font-bold text-slate-800">{r.department}</td>
-                      <td className={cn("px-3 py-1.5 font-black", TYPE_COLORS[r.type])}>{TYPE_DOTS[r.type]} {r.type}</td>
+                      <td className={cn("px-3 py-1.5 font-black whitespace-nowrap", TYPE_COLORS[r.type])}>{TYPE_DOTS[r.type]} {r.type}</td>
                       <td className="px-3 py-1.5 text-slate-600">{r.admissionName}</td>
                     </tr>
                   ))}
